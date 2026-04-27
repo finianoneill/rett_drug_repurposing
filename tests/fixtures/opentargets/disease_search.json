@@ -1,0 +1,8 @@
+{
+  "search": {
+    "hits": [
+      { "id": "MONDO_0010726", "name": "Rett syndrome", "entity": "disease" },
+      { "id": "MONDO_0017746", "name": "atypical Rett syndrome", "entity": "disease" }
+    ]
+  }
+}

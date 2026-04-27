@@ -1,0 +1,79 @@
+{
+  "disease": {
+    "id": "MONDO_0010726",
+    "name": "Rett syndrome",
+    "drugAndClinicalCandidates": {
+      "count": 2,
+      "rows": [
+        {
+          "id": "row-trofinetide",
+          "maxClinicalStage": "APPROVAL",
+          "drug": {
+            "id": "CHEMBL_TROF",
+            "name": "TROFINETIDE",
+            "drugType": "Small molecule",
+            "maximumClinicalStage": "APPROVAL",
+            "tradeNames": ["Daybue"],
+            "synonyms": ["NNZ-2566", "Trofinetide"],
+            "mechanismsOfAction": {
+              "rows": [
+                {
+                  "mechanismOfAction": "Insulin-like growth factor 1 analog",
+                  "targets": [
+                    { "id": "ENSG00000017427", "approvedSymbol": "IGF1" }
+                  ]
+                }
+              ]
+            }
+          },
+          "clinicalReports": [
+            {
+              "id": "NCT04181723",
+              "source": "ClinicalTrials.gov",
+              "clinicalStage": "PHASE_3",
+              "trialPhase": "Phase 3",
+              "trialOverallStatus": "Completed",
+              "phaseFromSource": "PHASE3",
+              "url": "https://clinicaltrials.gov/study/NCT04181723",
+              "year": 2022
+            }
+          ]
+        },
+        {
+          "id": "row-fingolimod",
+          "maxClinicalStage": "PHASE_1_2",
+          "drug": {
+            "id": "CHEMBL314854",
+            "name": "FINGOLIMOD",
+            "drugType": "Small molecule",
+            "maximumClinicalStage": "APPROVAL",
+            "tradeNames": ["Gilenya"],
+            "synonyms": ["FTY-720", "Fingolimod"],
+            "mechanismsOfAction": {
+              "rows": [
+                {
+                  "mechanismOfAction": "S1P1 receptor modulator",
+                  "targets": [
+                    { "id": "ENSG00000176697", "approvedSymbol": "BDNF" }
+                  ]
+                }
+              ]
+            }
+          },
+          "clinicalReports": [
+            {
+              "id": "NCT02061189",
+              "source": "ClinicalTrials.gov",
+              "clinicalStage": "PHASE_1_2",
+              "trialPhase": "Phase 1/Phase 2",
+              "trialOverallStatus": "Completed",
+              "phaseFromSource": "PHASE1_2",
+              "url": "https://clinicaltrials.gov/study/NCT02061189",
+              "year": 2014
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
