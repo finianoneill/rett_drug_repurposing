@@ -1,0 +1,41 @@
+{
+  "_comment": "Oracle compounds for Rett syndrome validation. Each pathway lists expected approved drugs (by ChEMBL ID + name) and the target genes that define membership. Used by tests/test_validation.py — see IMPLEMENTATION_BRIEF.md §14.",
+  "disease": { "efo_id": "MONDO_0010726", "name": "Rett syndrome" },
+  "pathways": {
+    "IGF-1 axis": {
+      "targets": ["IGF1", "IGF1R", "IGFBP3"],
+      "drugs": [
+        { "chembl_id": "CHEMBL1201716", "name": "MECASERMIN" }
+      ],
+      "notes": "Trofinetide (Daybue, FDA-approved 2023) is the canonical Rett-specific IGF-1 analog, but is not currently in Open Targets' approved-drugs graph for Rett — Mecasermin (recombinant IGF-1) covers the same axis."
+    },
+    "BDNF / TrkB signaling": {
+      "targets": ["BDNF", "NTRK2"],
+      "drugs": [],
+      "notes": "No approved drug hits BDNF or TrkB for Rett in Open Targets. Investigational compounds (LM22A-4, 7,8-DHF) are not in scope for the approved-drugs filter. This pathway is therefore expected to fail coverage in Phase 1; the test relaxes to ≥3 of 4 pathways."
+    },
+    "NMDA / glutamate balance": {
+      "targets": [
+        "GRIN1",
+        "GRIN2A",
+        "GRIN2B",
+        "GRIN2C",
+        "GRIN2D",
+        "GRIN3A",
+        "GRIN3B"
+      ],
+      "drugs": [
+        { "chembl_id": "CHEMBL742", "name": "KETAMINE" },
+        { "chembl_id": "CHEMBL2364609", "name": "ESKETAMINE HYDROCHLORIDE" },
+        { "chembl_id": "CHEMBL52440", "name": "DEXTROMETHORPHAN" }
+      ]
+    },
+    "Sigma-1 receptor": {
+      "targets": ["SIGMAR1"],
+      "drugs": [
+        { "chembl_id": "CHEMBL52440", "name": "DEXTROMETHORPHAN" }
+      ],
+      "notes": "Dextromethorphan is dual-acting (NMDA + sigma-1). Its canonical target in our pipeline is GRIN2A; SIGMAR1 appears in alternative_targets evidence."
+    }
+  }
+}
