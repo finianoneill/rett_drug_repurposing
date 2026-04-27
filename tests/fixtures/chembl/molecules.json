@@ -1,0 +1,32 @@
+{
+  "__meta__": {
+    "fetched_at": "2026-04-26T00:00:00+00:00",
+    "requested_chembl_ids": ["CHEMBL_TROF", "CHEMBL314854"]
+  },
+  "molecules": [
+    {
+      "molecule_chembl_id": "CHEMBL_TROF",
+      "pref_name": "TROFINETIDE",
+      "max_phase": "4.0",
+      "first_approval": 2023,
+      "withdrawn_flag": false,
+      "molecule_type": "Small molecule",
+      "molecule_structures": {
+        "canonical_smiles": "CC(C)C[C@H](NC(=O)CN1CCC[C@H]1C(=O)O)C(=O)O"
+      },
+      "atc_classifications": ["N07XX"]
+    },
+    {
+      "molecule_chembl_id": "CHEMBL314854",
+      "pref_name": "FINGOLIMOD",
+      "max_phase": "4.0",
+      "first_approval": 2010,
+      "withdrawn_flag": false,
+      "molecule_type": "Small molecule",
+      "molecule_structures": {
+        "canonical_smiles": "CCCCCCCCC1=CC=C(CCC(N)(CO)CO)C=C1"
+      },
+      "atc_classifications": ["L04AA27"]
+    }
+  ]
+}

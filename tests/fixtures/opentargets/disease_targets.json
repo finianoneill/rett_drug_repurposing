@@ -1,0 +1,50 @@
+{
+  "disease": {
+    "id": "MONDO_0010726",
+    "name": "Rett syndrome",
+    "associatedTargets": {
+      "count": 3,
+      "rows": [
+        {
+          "target": {
+            "id": "ENSG00000169057",
+            "approvedSymbol": "MECP2",
+            "approvedName": "methyl-CpG binding protein 2",
+            "biotype": "protein_coding"
+          },
+          "score": 0.88,
+          "datatypeScores": [
+            { "id": "genetic_association", "score": 0.95 },
+            { "id": "literature", "score": 0.85 }
+          ]
+        },
+        {
+          "target": {
+            "id": "ENSG00000176697",
+            "approvedSymbol": "BDNF",
+            "approvedName": "brain derived neurotrophic factor",
+            "biotype": "protein_coding"
+          },
+          "score": 0.42,
+          "datatypeScores": [
+            { "id": "literature", "score": 0.6 },
+            { "id": "animal_model", "score": 0.4 }
+          ]
+        },
+        {
+          "target": {
+            "id": "ENSG00000017427",
+            "approvedSymbol": "IGF1",
+            "approvedName": "insulin like growth factor 1",
+            "biotype": "protein_coding"
+          },
+          "score": 0.55,
+          "datatypeScores": [
+            { "id": "literature", "score": 0.7 },
+            { "id": "known_drug", "score": 0.85 }
+          ]
+        }
+      ]
+    }
+  }
+}
