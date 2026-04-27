@@ -1,0 +1,23 @@
+services:
+  backend:
+    command: uvicorn rett_repurposing.api.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./data:/app/data
+      - ./src:/app/src
+      - ./scripts:/app/scripts
+      - ./pyproject.toml:/app/pyproject.toml
+    environment:
+      - ENV=dev
+      - LOG_LEVEL=DEBUG
+
+  frontend:
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/next.config.ts:/app/next.config.ts
+      - ./frontend/tsconfig.json:/app/tsconfig.json
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      - WATCHPACK_POLLING=true
