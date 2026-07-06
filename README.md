@@ -2,7 +2,7 @@
 
 A publicly available agentic system that performs **in-silico drug repurposing for Rett syndrome** by reasoning over public biomedical data and ranking off-patent compounds as repurposing candidates.
 
-> **Status:** Phase 1 — target-based repurposing strategy via Open Targets + ChEMBL. See `docs/IMPLEMENTATION_BRIEF.md` for scope and `docs/rett-repurposing-design-doc.md` for the broader vision.
+> **Status:** Phase 2 — two strategies live: **target-based** (Open Targets + ChEMBL) and **signature reversal** (a Mecp2-null mouse cortex expression signature reversed against LINCS L1000 perturbagens via SigCom LINCS). See `docs/IMPLEMENTATION_BRIEF.md` for the Phase 1 scope and `docs/rett-repurposing-design-doc.md` §8 for the phased roadmap.
 
 ## Architecture
 
@@ -13,6 +13,26 @@ Browser ──► frontend (Next.js, :3000) ──► backend (FastAPI, :8000) �
 ```
 
 The Next.js Route Handler at `/api/repurpose` proxies SSE from the backend (`http://backend:8000`) to the browser. CORS is a non-issue because the browser only ever talks to the frontend container.
+
+Inside the backend, a LangGraph pipeline dispatches the enabled strategies and streams ranked candidates back over SSE:
+
+```
+                 ┌── target_based ──┐
+supervisor ──────┤                  ├────► synthesizer ──► SSE stream
+                 └─ signature_reversal ─┘   (passthrough; real
+                                             ensemble = Phase 4)
+```
+
+Both strategies read from the same DuckDB store, which is populated **offline** by an idempotent fetch pipeline (`make fetch`) — the backend never fetches at request time:
+
+```
+Open Targets ─┐
+ChEMBL ───────┤► build_local_store.py ─► rett_repurposing.duckdb
+GEO ─► signature ─► SigCom LINCS ─┘
+```
+
+- **target-based** joins approved drugs to Rett-associated targets (Open Targets + ChEMBL).
+- **signature reversal** builds a Mecp2-null-vs-wild-type cortex expression signature from GEO, asks SigCom LINCS which L1000 perturbagens reverse it, and resolves the hits to ChEMBL drugs.
 
 ## Quickstart
 
@@ -45,7 +65,7 @@ Two services live in `docker-compose.yml`:
    cp .env.example .env
    # edit .env: ANTHROPIC_API_KEY=sk-ant-...
    ```
-   Phase 1 doesn't yet call the LLM, but `pydantic-settings` reads the file at startup.
+   Phases 1–2 don't yet call the LLM (deterministic supervisor and passthrough synthesizer), but `pydantic-settings` reads the file at startup.
 3. **No host process bound to ports `3000` or `8000`.** Stop any local dev servers first.
 
 ### 1. Build images
@@ -59,12 +79,12 @@ The first build takes ~2–4 min (uv resolves the Python lockfile, pnpm installs
 ### 2. Populate the DuckDB store
 
 ```bash
-make fetch                             # runs the three fetcher scripts inside the backend container
+make fetch                             # runs the fetch + build pipeline inside the backend container
 ```
 
-This runs `fetch_opentargets.py` → `fetch_chembl.py` → `build_local_store.py`, leaving `./data/rett_repurposing.duckdb` (~3 MB) on disk. The host owns `./data/`; the container mounts it read-write only during the fetch.
+This runs, in order: `fetch_opentargets.py` → `fetch_chembl.py` (Phase 1) → `fetch_geo.py` → `build_signature.py` → `fetch_lincs.py` (Phase 2) → `build_local_store.py`, leaving `./data/rett_repurposing.duckdb` on disk. The host owns `./data/`; the container mounts it read-write only during the fetch.
 
-`make fetch` is idempotent — re-run it any time you want fresh data. Open Targets and ChEMBL APIs are unauthenticated; expect ~10–30 s end-to-end.
+`make fetch` is idempotent — re-run it any time you want fresh data. All APIs (Open Targets, ChEMBL, NCBI GEO, SigCom LINCS) are unauthenticated. Phase 2 adds a GEO counts download (~20 MB) and ~180 ChEMBL name lookups, so end-to-end is ~1–3 min. The mouse→human ortholog table is committed (`make fetch-orthologs` to refresh it).
 
 ⚠️ **DuckDB single-writer rule.** Do **not** run `make fetch` while `make up` is running. The fetcher needs a write lock on the file; the backend holds a read lock. Stop the stack with `make down` first, or use the host-mode flow (§ *Host-mode development*).
 
@@ -129,7 +149,23 @@ The committed `docker-compose.override.yml` is **dev-mode by design** (hot-reloa
 docker compose -f docker-compose.yml up --build
 ```
 
-Passing `-f docker-compose.yml` explicitly skips the override. The backend then runs the baked-in `CMD` (`uvicorn ... --host 0.0.0.0 --port 8000`, no `--reload`) and the frontend runs the dev `pnpm dev` baked into its Dockerfile. A dedicated `Dockerfile` stage that runs `next build && next start` is a Phase 2 deliverable; for now this is "production-shaped," not "production-ready." Don't expose this to the public internet.
+Passing `-f docker-compose.yml` explicitly skips the override. The backend then runs the baked-in `CMD` (`uvicorn ... --host 0.0.0.0 --port 8000`, no `--reload`) and the frontend runs the dev `pnpm dev` baked into its Dockerfile. A dedicated `Dockerfile` stage that runs `next build && next start` remains a later deliverable; for now this is "production-shaped," not "production-ready." Don't expose this to the public internet.
+
+## Running the strategies
+
+Once the stack is up, open <http://localhost:3000>. Pick one or more **strategies** with the toggle buttons (`Target-based`, `Signature reversal`), then click **Run analysis**. Candidates stream in ranked by score, each with a collapsible evidence trail. Target-based candidates show the hit target; signature-reversal candidates are target-agnostic and show the strategy badge plus the L1000 reversal evidence.
+
+Under the hood the page calls `POST /api/repurpose`, which proxies to the backend. To drive it directly:
+
+```bash
+curl -N http://localhost:8000/repurpose \
+  -H 'Content-Type: application/json' \
+  -d '{"disease": "Rett syndrome", "enabled_strategies": ["signature_reversal"]}'
+```
+
+`enabled_strategies` accepts `["target_based"]`, `["signature_reversal"]`, or both (defaults to `["target_based"]`). The response is an SSE stream: `status` events for pipeline phases, one `candidate` event per ranked drug, then a final `complete` event (or an `error` event).
+
+> **Note:** the synthesizer is still a passthrough (real cross-strategy aggregation is Phase 4). When you enable *both* strategies it surfaces one list deterministically — run them individually to compare candidate sets. Independent methods agreeing is a good signal: e.g. **vorinostat** ranks highly under *both* target-based (HDAC axis) and signature reversal.
 
 ## Host-mode development
 
@@ -143,33 +179,49 @@ make typecheck                         # mypy + tsc
 make fetch-host                        # populate the DuckDB file from the host
 ```
 
-Host-mode tests are network-free (HTTP fetchers use `httpx.MockTransport`, store tests use in-memory DuckDB). The `validation` marker is opt-in and requires a populated `data/rett_repurposing.duckdb`:
+Host-mode tests are network-free (HTTP fetchers use `httpx.MockTransport`, store tests use in-memory DuckDB, the ortholog table and fixtures are committed). The `validation` marker is opt-in and requires a populated `data/rett_repurposing.duckdb`:
 
 ```bash
-uv run pytest -m validation -s         # oracle-coverage check, requires real data
+uv run pytest -m validation -s         # oracle + signature-reversal checks, require real data
 ```
+
+Two validation tests run here: the target-based **oracle** (Trofinetide's IGF-1 axis and other Rett pathway classes surface in the top 20) and the **signature-reversal** check (neuroactive reversers such as valproic acid / vorinostat / topiramate surface, with valid reversal scores).
 
 ## Repository layout
 
 See `docs/IMPLEMENTATION_BRIEF.md` §4 for the full structure. Highlights:
 
 - `src/rett_repurposing/` — Python package (config, models, store, fetchers, strategies, graph, api).
-- `scripts/` — fetchers and the local-store builder.
-- `frontend/` — Next.js 15 App Router app.
+  - `fetchers/` — Open Targets, ChEMBL, GEO, and SigCom LINCS clients.
+  - `signature/` — Phase 2 disease-signature build (differential expression + mouse→human orthology; the committed ortholog table lives in `signature/reference/`).
+  - `strategies/` — `target_based` and `signature_reversal`, both behind the `Strategy` ABC.
+- `scripts/` — fetchers, the signature builder, and the local-store builder.
+- `frontend/` — Next.js 15 App Router app (strategy selector + streaming candidate cards).
 - `docker/` — backend and frontend Dockerfiles.
-- `notebooks/journal/` — learning journal (user-authored).
+- `notebooks/journal/` — learning journal (user-authored; a Phase 2 stub is scaffolded).
 
 ## Data sources
 
-See `DATA_LICENSES.md` for full attribution. Phase 1 sources:
+See `DATA_LICENSES.md` for full attribution.
+
+Phase 1 sources:
 
 - **Open Targets Platform** (CC0) — disease–target associations, known drugs.
 - **ChEMBL** (CC BY-SA 3.0) — drug enrichment (approval status, SMILES, ATC).
 
-## Phase 1 scope
+Phase 2 sources:
 
-In: target-based strategy end-to-end, single LangGraph node, FastAPI SSE, Next.js streaming UI.
-Out: signature reversal, network proximity, Bayesian aggregation, BioNeMo, MCP servers, multi-disease, auth.
+- **GEO** (NIH public domain) — Mecp2-null mouse cortex RNA-seq (GSE300534) for the disease signature.
+- **SigCom LINCS / LINCS L1000** (open) — perturbagen signatures for reversal scoring.
+- **MGI** (free, attribution requested) — mouse→human ortholog mapping.
+
+## Scope by phase
+
+- **Phase 1 (done):** target-based strategy end-to-end — OT + ChEMBL → DuckDB → LangGraph → FastAPI SSE → Next.js streaming UI.
+- **Phase 2 (this release):** signature-reversal strategy — a Rett expression signature (Mecp2-null vs WT cortex, GEO) reversed against LINCS L1000 perturbagens (SigCom LINCS), resolved to ChEMBL drugs, added as a second LangGraph node. Select strategies in the UI or via `enabled_strategies` on `POST /repurpose`.
+- **Out (later phases):** network proximity (Phase 3), real ensemble synthesizer (Phase 4), Bayesian aggregation, BioNeMo, MCP servers, multi-disease, auth.
+
+The synthesizer remains a passthrough — when both strategies run it surfaces one deterministically (real cross-strategy aggregation is Phase 4). Run the strategies individually to compare their candidate lists.
 
 ## License
 

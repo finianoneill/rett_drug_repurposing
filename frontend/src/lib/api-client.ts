@@ -27,13 +27,17 @@ export type RepurposeStreamHandlers = {
 export async function streamRepurpose(
   disease: string,
   handlers: RepurposeStreamHandlers,
-  signal?: AbortSignal,
+  options?: { signal?: AbortSignal; strategies?: string[] },
 ): Promise<void> {
+  const body: Record<string, unknown> = { disease };
+  if (options?.strategies && options.strategies.length > 0) {
+    body.enabled_strategies = options.strategies;
+  }
   const response = await fetch("/api/repurpose", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ disease }),
-    signal,
+    body: JSON.stringify(body),
+    signal: options?.signal,
   });
 
   if (!response.ok) {

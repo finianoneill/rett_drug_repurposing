@@ -11,9 +11,15 @@ import {
 import { EvidenceTrail } from "@/components/evidence-trail";
 import type { Candidate } from "@/lib/types";
 
+const STRATEGY_LABELS: Record<string, string> = {
+  target_based: "target-based",
+  signature_reversal: "signature reversal",
+};
+
 export function CandidateCard({ candidate, rank }: { candidate: Candidate; rank: number }) {
-  const { drug, target, score, score_components } = candidate;
+  const { drug, target, score, score_components, strategy } = candidate;
   const defaultOpen = rank <= 3;
+  const strategyLabel = STRATEGY_LABELS[strategy] ?? strategy;
 
   return (
     <Card className="overflow-hidden">
@@ -37,14 +43,22 @@ export function CandidateCard({ candidate, rank }: { candidate: Candidate; rank:
       </CardHeader>
       <CardContent className="pt-0">
         <div className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">target</span>
-          <Badge variant="outline" className="font-mono">
-            {target.symbol ?? target.ensembl_id}
-          </Badge>
-          {target.overall_association_score != null && (
-            <span className="text-xs text-muted-foreground">
-              assoc {target.overall_association_score.toFixed(2)}
-            </span>
+          {target ? (
+            <>
+              <span className="text-muted-foreground">target</span>
+              <Badge variant="outline" className="font-mono">
+                {target.symbol ?? target.ensembl_id}
+              </Badge>
+              {target.overall_association_score != null && (
+                <span className="text-xs text-muted-foreground">
+                  assoc {target.overall_association_score.toFixed(2)}
+                </span>
+              )}
+            </>
+          ) : (
+            <Badge variant="secondary" className="font-normal">
+              {strategyLabel}
+            </Badge>
           )}
           {drug.first_approval_year && (
             <span className="text-xs text-muted-foreground ml-auto">

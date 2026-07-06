@@ -9,10 +9,13 @@ import pytest
 from rett_repurposing.models import Disease
 from rett_repurposing.store.queries import (
     upsert_disease,
+    upsert_disease_signature,
     upsert_disease_target,
     upsert_drug,
+    upsert_drug_signature_reversal,
     upsert_drug_target_disease,
 )
+from rett_repurposing.strategies.signature_reversal import SignatureReversalStrategy
 from rett_repurposing.strategies.target_based import (
     MAX_EVIDENCE,
     WEIGHT_DRUG_EVIDENCE,
@@ -238,4 +241,79 @@ async def test_strategy_name_and_metadata(memory_db):
     result = await strategy.run(DISEASE)
     assert result.strategy == "target_based"
     assert result.disease == DISEASE
+    assert result.candidates == []
+
+
+# --- signature-reversal strategy -------------------------------------------
+
+
+def _seed_signature(conn, up: list[str], down: list[str], source: str = "GSE300534") -> None:
+    for rank, gene in enumerate(up, start=1):
+        upsert_disease_signature(
+            conn, efo_id=EFO, gene_symbol=gene, direction="up", rank=rank, source=source
+        )
+    for rank, gene in enumerate(down, start=1):
+        upsert_disease_signature(
+            conn, efo_id=EFO, gene_symbol=gene, direction="down", rank=rank, source=source
+        )
+
+
+def _seed_reversal(
+    conn, chembl_id: str, *, pert_name: str, z_sum: float, n_signatures: int = 1
+) -> None:
+    upsert_drug_signature_reversal(
+        conn,
+        efo_id=EFO,
+        chembl_id=chembl_id,
+        pert_name=pert_name,
+        z_up=z_sum / 2,
+        z_down=z_sum / 2,
+        z_sum=z_sum,
+        reversal_score=max(0.0, -z_sum),
+        n_signatures=n_signatures,
+    )
+
+
+@pytest.mark.asyncio
+async def test_signature_reversal_ranks_by_reversal_strength(memory_db):
+    _seed_disease(memory_db)
+    _seed_signature(memory_db, up=["IRAK1"], down=["MECP2", "BDNF"])
+    _seed_drug(memory_db, "CHEMBL_VPA", "VALPROIC ACID")
+    _seed_drug(memory_db, "CHEMBL_RALOX", "RALOXIFENE")
+    _seed_reversal(memory_db, "CHEMBL_VPA", pert_name="valproic-acid", z_sum=-8.1)
+    _seed_reversal(memory_db, "CHEMBL_RALOX", pert_name="raloxifene", z_sum=-6.2)
+
+    strategy = SignatureReversalStrategy(memory_db)
+    result = await strategy.run(DISEASE)
+
+    assert result.strategy == "signature_reversal"
+    assert [c.drug.chembl_id for c in result.candidates] == ["CHEMBL_VPA", "CHEMBL_RALOX"]
+    top = result.candidates[0]
+    # Strongest reverser is normalised to 1.0; candidates are target-agnostic.
+    assert top.score == pytest.approx(1.0)
+    assert top.target is None
+    assert top.score_components["z_sum"] == pytest.approx(-8.1)
+
+
+@pytest.mark.asyncio
+async def test_signature_reversal_evidence_chain(memory_db):
+    _seed_disease(memory_db)
+    _seed_signature(memory_db, up=["IRAK1"], down=["MECP2"])
+    _seed_drug(memory_db, "CHEMBL_VPA", "VALPROIC ACID")  # approved (max_phase 4)
+    _seed_reversal(memory_db, "CHEMBL_VPA", pert_name="valproic-acid", z_sum=-8.1)
+
+    result = await SignatureReversalStrategy(memory_db).run(DISEASE)
+    kinds = [e.kind for e in result.candidates[0].evidence]
+    assert "signature_reversal" in kinds
+    assert "signature_provenance" in kinds
+    # Approved drug gets the off-patent repurposing link.
+    assert "approval_status" in kinds
+    provenance = next(e for e in result.candidates[0].evidence if e.kind == "signature_provenance")
+    assert "GSE300534" in provenance.description
+
+
+@pytest.mark.asyncio
+async def test_signature_reversal_empty_when_no_data(memory_db):
+    _seed_disease(memory_db)
+    result = await SignatureReversalStrategy(memory_db).run(DISEASE)
     assert result.candidates == []

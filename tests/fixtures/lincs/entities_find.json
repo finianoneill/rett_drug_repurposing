@@ -1,0 +1,20 @@
+[
+  {
+    "id": "uuid-IRAK1",
+    "meta": {
+      "symbol": "IRAK1"
+    }
+  },
+  {
+    "id": "uuid-MECP2",
+    "meta": {
+      "symbol": "MECP2"
+    }
+  },
+  {
+    "id": "uuid-BDNF",
+    "meta": {
+      "symbol": "BDNF"
+    }
+  }
+]

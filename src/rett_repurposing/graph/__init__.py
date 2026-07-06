@@ -25,6 +25,7 @@ from rett_repurposing.graph.state import RepurposingState
 from rett_repurposing.graph.supervisor import route_to_strategies, supervisor
 from rett_repurposing.graph.synthesizer import synthesizer
 from rett_repurposing.strategies.base import Strategy
+from rett_repurposing.strategies.signature_reversal import SignatureReversalStrategy
 from rett_repurposing.strategies.target_based import TargetBasedStrategy
 
 __all__ = [
@@ -35,9 +36,15 @@ __all__ = [
 
 
 def build_strategies(conn: duckdb.DuckDBPyConnection) -> dict[str, Strategy]:
-    """Construct the canonical Phase 1 strategy registry."""
+    """Construct the strategy registry.
+
+    Phase 1 shipped ``target_based``; Phase 2 adds ``signature_reversal``. Both
+    plug into the same supervisor fan-out — callers pick which run via
+    ``enabled_strategies``.
+    """
     return {
         "target_based": TargetBasedStrategy(conn),
+        "signature_reversal": SignatureReversalStrategy(conn),
     }
 
 

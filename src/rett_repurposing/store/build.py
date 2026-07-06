@@ -21,8 +21,10 @@ from rett_repurposing.exceptions import StoreError
 from rett_repurposing.store.connection import get_connection, init_schema
 from rett_repurposing.store.queries import (
     upsert_disease,
+    upsert_disease_signature,
     upsert_disease_target,
     upsert_drug,
+    upsert_drug_signature_reversal,
     upsert_drug_target_disease,
 )
 
@@ -62,6 +64,17 @@ def stage_to_phase(stage: str | None) -> float | None:
 def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise FileNotFoundError(f"missing file: {path}")
+    return json.loads(path.read_text())  # type: ignore[no-any-return]
+
+
+def _maybe_load_json(directory: Path | None, filename: str) -> dict[str, Any] | None:
+    """Load an optional JSON file; return None when the dir/file is absent."""
+    if directory is None:
+        return None
+    path = directory / filename
+    if not path.exists():
+        log.info("build.optional_input_absent", path=str(path))
+        return None
     return json.loads(path.read_text())  # type: ignore[no-any-return]
 
 
@@ -109,13 +122,24 @@ def build(
     opentargets_dir: Path,
     chembl_dir: Path,
     duckdb_path: Path,
+    *,
+    signature_dir: Path | None = None,
+    lincs_dir: Path | None = None,
 ) -> None:
-    """Read raw fetcher output, populate the DuckDB store transactionally."""
+    """Read raw fetcher output, populate the DuckDB store transactionally.
+
+    Phase 2 inputs (``signature_dir``/``lincs_dir``) are optional: if the files
+    are absent the signature-reversal tables are simply left empty, so a
+    Phase 1-only fetch still builds a valid store.
+    """
     duckdb_path.parent.mkdir(parents=True, exist_ok=True)
 
     targets_payload = _load_json(opentargets_dir / "disease_targets.json")
     drugs_payload = _load_json(opentargets_dir / "drug_candidates.json")
     chembl_payload = _load_json(chembl_dir / "molecules.json")
+
+    signature_payload = _maybe_load_json(signature_dir, "rett_signature.json")
+    reversers_payload = _maybe_load_json(lincs_dir, "reversers.json")
 
     fetched_at = datetime.now(tz=UTC)
     chembl_index = _index_chembl_molecules(chembl_payload)
@@ -127,6 +151,8 @@ def build(
     if not efo_id or not name:
         raise StoreError("disease_targets.json missing disease.id or disease.name")
 
+    signature_genes = 0
+    reversal_drugs = 0
     with get_connection(duckdb_path) as conn:
         init_schema(conn)
         try:
@@ -139,6 +165,10 @@ def build(
                 efo_id=efo_id,
                 chembl_index=chembl_index,
             )
+            if signature_payload is not None:
+                signature_genes = _ingest_signature(conn, signature_payload, efo_id=efo_id)
+            if reversers_payload is not None:
+                reversal_drugs = _ingest_reversers(conn, reversers_payload, efo_id=efo_id)
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")
@@ -150,6 +180,8 @@ def build(
         disease_targets=target_count,
         drugs=drug_count,
         drug_target_disease_links=link_count,
+        signature_genes=signature_genes,
+        reversal_drugs=reversal_drugs,
     )
 
 
@@ -242,6 +274,125 @@ def _ingest_drug_candidates(
                 link_count += 1
 
     return drug_count, link_count
+
+
+def _ingest_signature(
+    conn: duckdb.DuckDBPyConnection,
+    payload: dict[str, Any],
+    *,
+    efo_id: str,
+) -> int:
+    """Load the up/down human gene signature, ranked within each direction."""
+    source = (payload.get("__meta__") or {}).get("source")
+    count = 0
+    for direction in ("up", "down"):
+        genes = payload.get(f"{direction}_genes") or []
+        for rank, gene in enumerate(genes, start=1):
+            if not isinstance(gene, str) or not gene:
+                continue
+            upsert_disease_signature(
+                conn,
+                efo_id=efo_id,
+                gene_symbol=gene,
+                direction=direction,
+                rank=rank,
+                source=source,
+            )
+            count += 1
+    return count
+
+
+def _ingest_reversers(
+    conn: duckdb.DuckDBPyConnection,
+    payload: dict[str, Any],
+    *,
+    efo_id: str,
+) -> int:
+    """Ingest reverser drugs + their aggregated reversal scores.
+
+    Reverser drugs resolved to ChEMBL are inserted into ``drugs`` (without
+    clobbering richer Open Targets rows already present), then reversal
+    signatures are aggregated to the strongest (most-negative z-sum) per drug.
+    """
+    molecules: list[dict[str, Any]] = payload.get("molecules") or []
+    reversers: list[dict[str, Any]] = payload.get("reversers") or []
+
+    existing = {row[0] for row in conn.execute("SELECT chembl_id FROM drugs").fetchall()}
+    for molecule in molecules:
+        chembl_id = molecule.get("molecule_chembl_id")
+        if not chembl_id or chembl_id in existing:
+            continue
+        _ingest_drug_from_chembl(conn, molecule)
+        existing.add(chembl_id)
+
+    # Aggregate reversers per drug: keep the strongest reversing signature.
+    best: dict[str, dict[str, Any]] = {}
+    counts: dict[str, int] = {}
+    for row in reversers:
+        chembl_id = row.get("chembl_id")
+        z_sum = row.get("z_sum")
+        if not chembl_id or chembl_id not in existing or z_sum is None:
+            continue
+        counts[chembl_id] = counts.get(chembl_id, 0) + 1
+        current = best.get(chembl_id)
+        if current is None or z_sum < current["z_sum"]:
+            best[chembl_id] = row
+
+    for chembl_id, row in best.items():
+        z_sum = float(row["z_sum"])
+        upsert_drug_signature_reversal(
+            conn,
+            efo_id=efo_id,
+            chembl_id=chembl_id,
+            pert_name=row.get("pert_name"),
+            z_up=_as_float(row.get("z_up")),
+            z_down=_as_float(row.get("z_down")),
+            z_sum=z_sum,
+            reversal_score=max(0.0, -z_sum),
+            n_signatures=counts[chembl_id],
+        )
+    return len(best)
+
+
+def _as_float(raw: Any) -> float | None:
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _ingest_drug_from_chembl(conn: duckdb.DuckDBPyConnection, molecule: dict[str, Any]) -> None:
+    """Insert a drug row from a raw ChEMBL molecule record alone (no OT drug)."""
+    chembl_id = molecule["molecule_chembl_id"]
+    max_phase = _coerce_max_phase(molecule.get("max_phase"))
+    is_approved = max_phase is not None and max_phase >= 4.0
+
+    structures = molecule.get("molecule_structures") or {}
+    canonical_smiles = structures.get("canonical_smiles") if isinstance(structures, dict) else None
+
+    withdrawn = molecule.get("withdrawn_flag")
+    synonyms = [
+        s["molecule_synonym"]
+        for s in (molecule.get("molecule_synonyms") or [])
+        if isinstance(s, dict) and s.get("molecule_synonym")
+    ]
+
+    upsert_drug(
+        conn,
+        chembl_id=chembl_id,
+        name=molecule.get("pref_name") or chembl_id,
+        drug_type=molecule.get("molecule_type"),
+        max_phase=max_phase,
+        is_approved=is_approved,
+        first_approval_year=_coerce_year(molecule.get("first_approval")),
+        withdrawn_flag=bool(withdrawn) if withdrawn is not None else None,
+        trade_names=[],
+        synonyms=synonyms,
+        canonical_smiles=canonical_smiles,
+        atc_classifications=_atc_codes(molecule),
+    )
 
 
 def _ingest_drug(

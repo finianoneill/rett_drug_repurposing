@@ -47,10 +47,15 @@ class EvidenceLink(BaseModel):
 
 
 class Candidate(BaseModel):
-    """A single repurposing candidate output by a strategy."""
+    """A single repurposing candidate output by a strategy.
+
+    `target` is optional: target-based strategies pin a specific target, but
+    target-agnostic strategies (signature reversal in Phase 2, network
+    proximity in Phase 3) rank whole compounds and leave it ``None``.
+    """
 
     drug: Drug
-    target: Target
+    target: Target | None = None
     score: float = Field(..., ge=0.0)
     score_components: dict[str, float] = Field(default_factory=dict)
     evidence: list[EvidenceLink]

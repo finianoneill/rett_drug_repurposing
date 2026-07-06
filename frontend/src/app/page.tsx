@@ -13,14 +13,26 @@ import {
 } from "@/lib/api-client";
 import type { Candidate } from "@/lib/types";
 
+const STRATEGIES = [
+  { id: "target_based", label: "Target-based" },
+  { id: "signature_reversal", label: "Signature reversal" },
+];
+
 export default function Home() {
   const [disease, setDisease] = useState("Rett syndrome");
+  const [strategies, setStrategies] = useState<string[]>(["target_based"]);
   const [running, setRunning] = useState(false);
   const [phase, setPhase] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [completion, setCompletion] = useState<CompletePayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  function toggleStrategy(id: string) {
+    setStrategies((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id],
+    );
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -34,21 +46,25 @@ export default function Home() {
     setError(null);
 
     try {
-      await streamRepurpose(disease, {
-        onStatus: (payload: StatusPayload) => {
-          setPhase(payload.phase);
-          setStatusMessage(payload.message);
+      await streamRepurpose(
+        disease,
+        {
+          onStatus: (payload: StatusPayload) => {
+            setPhase(payload.phase);
+            setStatusMessage(payload.message);
+          },
+          onCandidate: (c: Candidate) => {
+            setCandidates((prev) => [...prev, c]);
+          },
+          onComplete: (payload: CompletePayload) => {
+            setCompletion(payload);
+          },
+          onError: (payload) => {
+            setError(`${payload.phase}: ${payload.message}`);
+          },
         },
-        onCandidate: (c: Candidate) => {
-          setCandidates((prev) => [...prev, c]);
-        },
-        onComplete: (payload: CompletePayload) => {
-          setCompletion(payload);
-        },
-        onError: (payload) => {
-          setError(`${payload.phase}: ${payload.message}`);
-        },
-      });
+        { strategies },
+      );
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -62,7 +78,7 @@ export default function Home() {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold tracking-tight">Rett Drug Repurposing</h1>
           <a
-            href="https://github.com/"
+            href="https://github.com/finianoneill/rett_drug_repurposing"
             target="_blank"
             rel="noreferrer"
             className="text-muted-foreground hover:text-foreground"
@@ -86,10 +102,33 @@ export default function Home() {
           aria-label="Disease"
           disabled={running}
         />
-        <Button type="submit" disabled={running || disease.trim().length === 0}>
+        <Button
+          type="submit"
+          disabled={running || disease.trim().length === 0 || strategies.length === 0}
+        >
           {running ? "Running…" : "Run analysis"}
         </Button>
       </form>
+
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-muted-foreground">strategies</span>
+        {STRATEGIES.map((s) => {
+          const active = strategies.includes(s.id);
+          return (
+            <Button
+              key={s.id}
+              type="button"
+              variant={active ? "default" : "outline"}
+              size="sm"
+              disabled={running}
+              onClick={() => toggleStrategy(s.id)}
+              aria-pressed={active}
+            >
+              {s.label}
+            </Button>
+          );
+        })}
+      </div>
 
       <StatusBanner
         currentPhase={phase}
@@ -114,7 +153,7 @@ export default function Home() {
           </div>
           <ul className="space-y-3">
             {candidates.map((c, i) => (
-              <li key={`${c.drug.chembl_id}:${c.target.ensembl_id}`}>
+              <li key={`${c.strategy}:${c.drug.chembl_id}:${c.target?.ensembl_id ?? "na"}`}>
                 <CandidateCard candidate={c} rank={i + 1} />
               </li>
             ))}

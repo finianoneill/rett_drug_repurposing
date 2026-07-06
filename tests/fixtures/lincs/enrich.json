@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "uuid": "sig-vpa",
+      "type": "reversers",
+      "z-up": -4.1,
+      "z-down": -4.0,
+      "z-sum": -8.1,
+      "p-up": 0.001,
+      "p-down": 0.001,
+      "fdr-up": 0.01,
+      "fdr-down": 0.01
+    },
+    {
+      "uuid": "sig-ralox",
+      "type": "reversers",
+      "z-up": -3.2,
+      "z-down": -3.0,
+      "z-sum": -6.2,
+      "p-up": 0.01,
+      "p-down": 0.01,
+      "fdr-up": 0.05,
+      "fdr-down": 0.05
+    },
+    {
+      "uuid": "sig-mimic",
+      "type": "mimickers",
+      "z-up": 3.5,
+      "z-down": 3.4,
+      "z-sum": 6.9,
+      "p-up": 0.01,
+      "p-down": 0.01,
+      "fdr-up": 0.05,
+      "fdr-down": 0.05
+    }
+  ],
+  "reversers": 2
+}

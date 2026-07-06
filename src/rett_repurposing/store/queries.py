@@ -140,6 +140,56 @@ def upsert_drug_target_disease(
         raise StoreError(f"upsert_drug_target_disease failed: {exc}") from exc
 
 
+def upsert_disease_signature(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    efo_id: str,
+    gene_symbol: str,
+    direction: str,
+    rank: int,
+    source: str | None,
+) -> None:
+    """Insert or replace one gene of the disease signature."""
+    try:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO disease_signature
+                (efo_id, gene_symbol, direction, rank, source)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [efo_id, gene_symbol, direction, rank, source],
+        )
+    except duckdb.Error as exc:
+        raise StoreError(f"upsert_disease_signature failed: {exc}") from exc
+
+
+def upsert_drug_signature_reversal(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    efo_id: str,
+    chembl_id: str,
+    pert_name: str | None,
+    z_up: float | None,
+    z_down: float | None,
+    z_sum: float | None,
+    reversal_score: float,
+    n_signatures: int,
+) -> None:
+    """Insert or replace a drug's aggregated reversal record."""
+    try:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO drug_signature_reversal
+                (efo_id, chembl_id, pert_name, z_up, z_down, z_sum,
+                 reversal_score, n_signatures)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [efo_id, chembl_id, pert_name, z_up, z_down, z_sum, reversal_score, n_signatures],
+        )
+    except duckdb.Error as exc:
+        raise StoreError(f"upsert_drug_signature_reversal failed: {exc}") from exc
+
+
 def count_rows(conn: duckdb.DuckDBPyConnection, table: str) -> int:
     """Count rows in a table. Used by health checks and tests."""
     try:
@@ -169,6 +219,50 @@ def fetch_approved_drugs_for_disease(
         raise StoreError(f"fetch_approved_drugs_for_disease failed: {exc}") from exc
 
     return [_row_to_dict(columns, row) for row in rows]
+
+
+def fetch_signature_reversal_candidates(
+    conn: duckdb.DuckDBPyConnection,
+    efo_id: str,
+) -> list[dict[str, Any]]:
+    """Return `signature_reversal_for_disease` rows, strongest reversal first."""
+    try:
+        rows = conn.execute(
+            """
+            SELECT * FROM signature_reversal_for_disease
+            WHERE efo_id = ?
+            ORDER BY reversal_score DESC
+            """,
+            [efo_id],
+        ).fetchall()
+        columns = [d[0] for d in conn.description or []]
+    except duckdb.Error as exc:
+        raise StoreError(f"fetch_signature_reversal_candidates failed: {exc}") from exc
+
+    return [dict(zip(columns, row, strict=True)) for row in rows]
+
+
+def fetch_disease_signature(
+    conn: duckdb.DuckDBPyConnection,
+    efo_id: str,
+) -> dict[str, list[str]]:
+    """Return the disease signature as ``{'up': [...], 'down': [...]}`` by rank."""
+    try:
+        rows = conn.execute(
+            """
+            SELECT direction, gene_symbol FROM disease_signature
+            WHERE efo_id = ?
+            ORDER BY direction, rank
+            """,
+            [efo_id],
+        ).fetchall()
+    except duckdb.Error as exc:
+        raise StoreError(f"fetch_disease_signature failed: {exc}") from exc
+
+    out: dict[str, list[str]] = {"up": [], "down": []}
+    for direction, gene in rows:
+        out.setdefault(direction, []).append(gene)
+    return out
 
 
 def _row_to_dict(columns: list[str], row: tuple[Any, ...]) -> dict[str, Any]:

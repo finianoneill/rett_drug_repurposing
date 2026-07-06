@@ -17,6 +17,7 @@ dependencies = [
     "structlog>=24.4",
     "langgraph>=0.2.50",
     "anthropic>=0.39",
+    "numpy>=2.0",
 ]
 
 [project.optional-dependencies]

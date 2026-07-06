@@ -1,0 +1,24 @@
+[
+  {
+    "id": "sig-vpa",
+    "meta": {
+      "pert_name": "valproic-acid",
+      "pert_type": "Chemical",
+      "pubchem_id": 3121,
+      "cell_line": "NEU",
+      "pert_dose": "10 uM",
+      "pert_time": "24 h"
+    }
+  },
+  {
+    "id": "sig-ralox",
+    "meta": {
+      "pert_name": "raloxifene",
+      "pert_type": "Chemical",
+      "pubchem_id": 5035,
+      "cell_line": "MCF7",
+      "pert_dose": "10 uM",
+      "pert_time": "24 h"
+    }
+  }
+]

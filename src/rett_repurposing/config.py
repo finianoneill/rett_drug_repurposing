@@ -38,6 +38,18 @@ class Settings(BaseSettings):
     opentargets_graphql_url: str = "https://api.platform.opentargets.org/api/v4/graphql"
     chembl_base_url: str = "https://www.ebi.ac.uk/chembl/api/data"
 
+    # Phase 2 — signature reversal.
+    # SigCom LINCS lives behind the maayanlab.cloud proxy; the bare ldp3.cloud
+    # hostname does not resolve publicly.
+    sigcom_lincs_base_url: str = "https://maayanlab.cloud/sigcom-lincs"
+    lincs_database: str = "l1000_cp"  # chemical perturbagen signatures
+    # GEO series backing the Rett disease signature (Mecp2-null mouse cortex).
+    geo_series_accession: str = "GSE300534"
+    geo_counts_url: str = (
+        "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE300nnn/GSE300534/suppl/"
+        "GSE300534_Raw_counts.txt.gz"
+    )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

@@ -92,6 +92,25 @@ class ChEMBLClient:
         """Fetch a single molecule by ChEMBL ID. Returns raw JSON."""
         return await self._get(f"molecule/{chembl_id}.json")
 
+    async def resolve_molecule_by_name(self, name: str) -> dict[str, Any] | None:
+        """Look up a molecule by drug name (case-insensitive).
+
+        Used by the Phase 2 signature-reversal fetcher to map a LINCS
+        perturbagen name to a ChEMBL molecule. Tries the preferred name first,
+        then synonyms. Returns the raw molecule JSON, or ``None`` if unmatched
+        (e.g. research compounds with only a Broad ``BRD-…`` code).
+        """
+        normalized = name.replace("-", " ").strip().upper()
+        if not normalized:
+            return None
+        for field in ("pref_name__iexact", "molecule_synonyms__molecule_synonym__iexact"):
+            payload = await self._get("molecule.json", params={field: normalized, "limit": 1})
+            molecules = payload.get("molecules", [])
+            if molecules:
+                molecule: dict[str, Any] = molecules[0]
+                return molecule
+        return None
+
     async def fetch_molecules_batch(
         self,
         chembl_ids: list[str],

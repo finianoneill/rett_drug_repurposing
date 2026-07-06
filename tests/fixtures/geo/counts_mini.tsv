@@ -1,0 +1,12 @@
+	Admera ID	S1	S2	S3	S4	S5	S6	S7	S8
+	Brain Area	Cortex	Cortex	Cortex	Cortex	Cortex	Cortex	Hippocampus	Cortex
+	Sex	M	M	M	M	M	M	M	M
+	Genotype	MeCP2: -/Y	MeCP2: -/Y	MeCP2: -/Y	MeCP2: +/Y	MeCP2: +/Y	MeCP2: +/Y	MeCP2: -/Y	MeCP2: -/Y
+	Animal ID	1	2	3	4	5	6	7	8
+	Injection Status	non-injected ctrl	non-injected ctrl	injected pbs controls	injected pbs controls	injected pbs controls	injected pbs controls	non-injected ctrl	injected rtt271 3e11
+Ensembl ID	Gene ID								
+ENSMUSG_MECP2	Mecp2	10	12	11	200	210	205	11	12
+ENSMUSG_BDNF	Bdnf	5	6	5	100	110	105	5	6
+ENSMUSG_IRAK1	Irak1	300	310	305	20	22	21	300	310
+ENSMUSG_ACTB	Actb	1000	1010	1005	1000	1010	1005	1000	1010
+ENSMUSG_GM	Gm12345	0	0	0	0	0	0	0	0

@@ -22,12 +22,37 @@ This file enumerates every external data source the project consumes, the licens
   > Zdrazil et al., "The ChEMBL Database in 2023: a drug discovery platform spanning multiple bioactivity data types and time periods," *Nucleic Acids Research*, 2024.
 - **Share-alike implication:** derived works that redistribute ChEMBL data (not just analyses) must use the same CC BY-SA license. We do not redistribute raw ChEMBL data — we fetch on demand and persist a derived DuckDB locally (gitignored).
 
-## Phase 2+ sources (placeholders)
+## Phase 2 sources (signature reversal)
+
+### SigCom LINCS / LINCS L1000
+
+- **Use:** ranks chemical perturbagens by how strongly their L1000 transcriptional signature reverses the Rett disease signature. Accessed via the SigCom LINCS REST API (`enrich/ranktwosided`, `l1000_cp`).
+- **Endpoint:** `https://maayanlab.cloud/sigcom-lincs` (metadata-api + data-api).
+- **License:** LINCS L1000 data is released as open/CC0 by the NIH LINCS program; the SigCom LINCS search engine (Ma'ayan Lab) is free and key-less.
+- **Attribution:** cite the LINCS program and SigCom LINCS. Suggested citations:
+  > Evangelista et al., "SigCom LINCS: data and metadata search engine for a million gene expression signatures," *Nucleic Acids Research*, 2022.
+  > Subramanian et al., "A Next Generation Connectivity Map: L1000 Platform and the First 1,000,000 Profiles," *Cell*, 2017.
+- **Notes:** we persist only derived reversal scores (aggregated per drug) in the local DuckDB — not the raw L1000 signature matrices.
+
+### GEO (Gene Expression Omnibus)
+
+- **Use:** the Rett disease expression signature is derived from Mecp2-null vs wild-type mouse cortex RNA-seq. Default series **GSE300534** ("Brain Mecp2 Genetic Dosage and Gene Therapy... in Rett Syndrome"); we download its supplementary raw-counts matrix.
+- **Endpoint:** `https://ftp.ncbi.nlm.nih.gov/geo/series/…` (NCBI GEO).
+- **License:** NIH GEO data is public domain (U.S. Government work). Individual submitters retain authorship credit.
+- **Attribution:** cite the originating study's GEO accession (GSE300534) in derived analyses.
+
+### MGI (Mouse Genome Informatics)
+
+- **Use:** mouse → human gene ortholog mapping (`HOM_MouseHumanSequence.rpt`), applied when translating the mouse disease signature to the human gene space LINCS uses. A derived two-column table is committed under `src/rett_repurposing/signature/reference/`.
+- **Endpoint:** `https://www.informatics.jax.org/downloads/reports/`
+- **License:** MGI data are freely available for research use; attribution requested.
+- **Attribution:**
+  > Baldarelli et al., "Mouse Genome Informatics: an integrated knowledgebase system for the laboratory mouse," *Genetics*, 2024.
+
+## Phase 3+ sources (placeholders)
 
 Add entries here as additional sources are integrated. Anticipated:
 
-- **LINCS L1000 / clue.io** — drug-induced gene expression signatures (CC0 / open).
-- **GEO** — raw RNA-seq for Mecp2-null mouse models (NIH public domain).
 - **GTEx** — human tissue expression (open access).
 - **Human Protein Atlas** — tissue/subcellular expression (CC BY-SA 3.0).
 - **STRING** — protein–protein interaction network (CC BY 4.0).
