@@ -17,6 +17,14 @@ class ChEMBLError(RepurposingError):
     """ChEMBL REST API failure (HTTP, malformed payload)."""
 
 
+class GEOError(RepurposingError):
+    """GEO download failure (HTTP, malformed/unexpected counts matrix)."""
+
+
+class LincsError(RepurposingError):
+    """SigCom LINCS API failure (HTTP, malformed payload, unknown gene symbols)."""
+
+
 class StoreError(RepurposingError):
     """DuckDB store failure (schema, query, transaction)."""
 

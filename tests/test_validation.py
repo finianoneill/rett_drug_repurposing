@@ -20,6 +20,7 @@ import duckdb
 import pytest
 
 from rett_repurposing.models import Disease
+from rett_repurposing.strategies.signature_reversal import SignatureReversalStrategy
 from rett_repurposing.strategies.target_based import TargetBasedStrategy
 
 DUCKDB_PATH = Path("data/rett_repurposing.duckdb")
@@ -66,6 +67,55 @@ async def test_oracle_coverage_in_top_20() -> None:
     assert covered >= MIN_COVERED_PATHWAYS, (
         f"Oracle coverage too low: {covered}/{len(coverage)} pathways found in top 20. "
         f"Coverage detail: {coverage}"
+    )
+
+
+# Neuroactive reverser anchors with Rett relevance. Vorinostat is a strong
+# cross-check: it also surfaces in the target-based strategy (HDAC axis), so
+# concordance across two independent methods is a good methodology signal.
+# Valproic acid and topiramate are anticonvulsants used clinically in Rett.
+SIGNATURE_ANCHORS = {
+    "CHEMBL98": "vorinostat",
+    "CHEMBL109": "valproic acid",
+    "CHEMBL220492": "topiramate",
+}
+MIN_REVERSAL_CANDIDATES = 20
+
+
+@pytest.mark.validation
+@pytest.mark.skipif(
+    not DUCKDB_PATH.exists() or DUCKDB_PATH.stat().st_size == 0,
+    reason="data/rett_repurposing.duckdb is empty — run `make fetch` first.",
+)
+async def test_signature_reversal_surfaces_neuroactive_reversers() -> None:
+    oracle = json.loads(ORACLE_PATH.read_text())
+    disease = Disease(**oracle["disease"])
+
+    conn = duckdb.connect(str(DUCKDB_PATH), read_only=True)
+    try:
+        result = await SignatureReversalStrategy(conn, top_n=20).run(disease)
+    finally:
+        conn.close()
+
+    assert len(result.candidates) >= MIN_REVERSAL_CANDIDATES, (
+        f"signature reversal produced only {len(result.candidates)} candidates "
+        "— expected the LINCS reversal store to be populated (run `make fetch`)."
+    )
+    # Scores are normalised to [0, 1] with the strongest reverser at 1.0.
+    scores = [c.score for c in result.candidates]
+    assert scores == sorted(scores, reverse=True)
+    assert scores[0] == pytest.approx(1.0)
+    # Genuine reversers have a negative z-sum.
+    assert all(c.score_components.get("z_sum", 0.0) <= 0 for c in result.candidates)
+
+    top_ids = {c.drug.chembl_id for c in result.candidates}
+    hits = {name for cid, name in SIGNATURE_ANCHORS.items() if cid in top_ids}
+    print("\n=== Signature-reversal anchors in top 20 ===")
+    for cid, name in SIGNATURE_ANCHORS.items():
+        print(f"  [{'HIT ' if cid in top_ids else 'miss'}] {name} ({cid})")
+    assert hits, (
+        "No neuroactive reverser anchor found in the top 20. Expected at least one "
+        f"of {sorted(SIGNATURE_ANCHORS.values())}."
     )
 
 

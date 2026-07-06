@@ -2,7 +2,7 @@
 
 A publicly available agentic system that performs **in-silico drug repurposing for Rett syndrome** by reasoning over public biomedical data and ranking off-patent compounds as repurposing candidates.
 
-> **Status:** Phase 1 — target-based repurposing strategy via Open Targets + ChEMBL. See `docs/IMPLEMENTATION_BRIEF.md` for scope and `docs/rett-repurposing-design-doc.md` for the broader vision.
+> **Status:** Phase 2 — two strategies live: **target-based** (Open Targets + ChEMBL) and **signature reversal** (a Mecp2-null mouse cortex expression signature reversed against LINCS L1000 perturbagens via SigCom LINCS). See `docs/IMPLEMENTATION_BRIEF.md` for the Phase 1 scope and `docs/rett-repurposing-design-doc.md` §8 for the phased roadmap.
 
 ## Architecture
 
@@ -62,9 +62,9 @@ The first build takes ~2–4 min (uv resolves the Python lockfile, pnpm installs
 make fetch                             # runs the three fetcher scripts inside the backend container
 ```
 
-This runs `fetch_opentargets.py` → `fetch_chembl.py` → `build_local_store.py`, leaving `./data/rett_repurposing.duckdb` (~3 MB) on disk. The host owns `./data/`; the container mounts it read-write only during the fetch.
+This runs, in order: `fetch_opentargets.py` → `fetch_chembl.py` (Phase 1) → `fetch_geo.py` → `build_signature.py` → `fetch_lincs.py` (Phase 2) → `build_local_store.py`, leaving `./data/rett_repurposing.duckdb` on disk. The host owns `./data/`; the container mounts it read-write only during the fetch.
 
-`make fetch` is idempotent — re-run it any time you want fresh data. Open Targets and ChEMBL APIs are unauthenticated; expect ~10–30 s end-to-end.
+`make fetch` is idempotent — re-run it any time you want fresh data. All APIs (Open Targets, ChEMBL, NCBI GEO, SigCom LINCS) are unauthenticated. Phase 2 adds a GEO counts download (~20 MB) and ~180 ChEMBL name lookups, so end-to-end is ~1–3 min. The mouse→human ortholog table is committed (`make fetch-orthologs` to refresh it).
 
 ⚠️ **DuckDB single-writer rule.** Do **not** run `make fetch` while `make up` is running. The fetcher needs a write lock on the file; the backend holds a read lock. Stop the stack with `make down` first, or use the host-mode flow (§ *Host-mode development*).
 
@@ -161,15 +161,26 @@ See `docs/IMPLEMENTATION_BRIEF.md` §4 for the full structure. Highlights:
 
 ## Data sources
 
-See `DATA_LICENSES.md` for full attribution. Phase 1 sources:
+See `DATA_LICENSES.md` for full attribution.
+
+Phase 1 sources:
 
 - **Open Targets Platform** (CC0) — disease–target associations, known drugs.
 - **ChEMBL** (CC BY-SA 3.0) — drug enrichment (approval status, SMILES, ATC).
 
-## Phase 1 scope
+Phase 2 sources:
 
-In: target-based strategy end-to-end, single LangGraph node, FastAPI SSE, Next.js streaming UI.
-Out: signature reversal, network proximity, Bayesian aggregation, BioNeMo, MCP servers, multi-disease, auth.
+- **GEO** (NIH public domain) — Mecp2-null mouse cortex RNA-seq (GSE300534) for the disease signature.
+- **SigCom LINCS / LINCS L1000** (open) — perturbagen signatures for reversal scoring.
+- **MGI** (free, attribution requested) — mouse→human ortholog mapping.
+
+## Scope by phase
+
+- **Phase 1 (done):** target-based strategy end-to-end — OT + ChEMBL → DuckDB → LangGraph → FastAPI SSE → Next.js streaming UI.
+- **Phase 2 (this release):** signature-reversal strategy — a Rett expression signature (Mecp2-null vs WT cortex, GEO) reversed against LINCS L1000 perturbagens (SigCom LINCS), resolved to ChEMBL drugs, added as a second LangGraph node. Select strategies in the UI or via `enabled_strategies` on `POST /repurpose`.
+- **Out (later phases):** network proximity (Phase 3), real ensemble synthesizer (Phase 4), Bayesian aggregation, BioNeMo, MCP servers, multi-disease, auth.
+
+The synthesizer remains a passthrough — when both strategies run it surfaces one deterministically (real cross-strategy aggregation is Phase 4). Run the strategies individually to compare their candidate lists.
 
 ## License
 

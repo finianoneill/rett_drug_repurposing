@@ -30,6 +30,18 @@ def parse_args() -> argparse.Namespace:
         help="Directory containing ChEMBL raw JSON files. Default: data/raw/chembl/",
     )
     parser.add_argument(
+        "--signature-dir",
+        type=Path,
+        default=Path("data/raw/signature"),
+        help="Directory with the Phase 2 disease signature. Default: data/raw/signature/",
+    )
+    parser.add_argument(
+        "--lincs-dir",
+        type=Path,
+        default=Path("data/raw/lincs"),
+        help="Directory with the Phase 2 LINCS reversers. Default: data/raw/lincs/",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=None,
@@ -42,7 +54,13 @@ def main() -> int:
     configure_logging()
     args = parse_args()
     duckdb_path = args.output or get_settings().duckdb_path
-    build(args.opentargets_dir, args.chembl_dir, Path(duckdb_path))
+    build(
+        args.opentargets_dir,
+        args.chembl_dir,
+        Path(duckdb_path),
+        signature_dir=args.signature_dir,
+        lincs_dir=args.lincs_dir,
+    )
     return 0
 
 

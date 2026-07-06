@@ -52,6 +52,51 @@ CREATE TABLE IF NOT EXISTS drug_target_disease (
     FOREIGN KEY (efo_id) REFERENCES diseases(efo_id)
 );
 
+-- Phase 2 — disease expression signature (top up/down genes from GEO DE).
+CREATE TABLE IF NOT EXISTS disease_signature (
+    efo_id       VARCHAR NOT NULL,
+    gene_symbol  VARCHAR NOT NULL,           -- human ortholog symbol
+    direction    VARCHAR NOT NULL,           -- 'up' | 'down' (disease-relative)
+    rank         INTEGER,                    -- 1-based rank within direction
+    source       VARCHAR,                    -- GEO accession
+    PRIMARY KEY (efo_id, gene_symbol, direction),
+    FOREIGN KEY (efo_id) REFERENCES diseases(efo_id)
+);
+
+-- Phase 2 — LINCS perturbagens that reverse the disease signature, aggregated
+-- to the strongest reversing signature per drug.
+CREATE TABLE IF NOT EXISTS drug_signature_reversal (
+    efo_id           VARCHAR NOT NULL,
+    chembl_id        VARCHAR NOT NULL,
+    pert_name        VARCHAR,
+    z_up             DOUBLE,
+    z_down           DOUBLE,
+    z_sum            DOUBLE,                 -- most-negative = strongest reversal
+    reversal_score   DOUBLE,                 -- -z_sum, clamped >= 0
+    n_signatures     INTEGER,                -- reversing signatures for this drug
+    PRIMARY KEY (efo_id, chembl_id),
+    FOREIGN KEY (chembl_id) REFERENCES drugs(chembl_id),
+    FOREIGN KEY (efo_id) REFERENCES diseases(efo_id)
+);
+
+-- Signature-reversal candidates view: the strategy reads this directly.
+CREATE VIEW IF NOT EXISTS signature_reversal_for_disease AS
+SELECT
+    r.efo_id,
+    r.chembl_id,
+    d.name,
+    d.first_approval_year,
+    d.is_approved,
+    r.pert_name,
+    r.z_up,
+    r.z_down,
+    r.z_sum,
+    r.reversal_score,
+    r.n_signatures
+FROM drug_signature_reversal r
+JOIN drugs d ON r.chembl_id = d.chembl_id
+WHERE COALESCE(d.withdrawn_flag, FALSE) = FALSE;
+
 -- Approved-drugs view: the strategy reads this directly. See §9.
 CREATE VIEW IF NOT EXISTS approved_drugs_for_disease AS
 SELECT

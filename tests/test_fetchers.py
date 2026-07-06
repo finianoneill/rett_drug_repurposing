@@ -7,14 +7,18 @@ of the interesting transformation logic is exercised in `test_build_store.py`.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 
-from rett_repurposing.exceptions import ChEMBLError, OpenTargetsError
+from rett_repurposing.exceptions import ChEMBLError, LincsError, OpenTargetsError
 from rett_repurposing.fetchers.chembl import ChEMBLClient
+from rett_repurposing.fetchers.lincs import SigComLincsClient
 from rett_repurposing.fetchers.opentargets import OpenTargetsClient
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def _ot_handler(payload: dict[str, Any]):
@@ -110,3 +114,90 @@ async def test_chembl_404_raises():
         client = ChEMBLClient(client=http)
         with pytest.raises(ChEMBLError):
             await client.fetch_molecule("CHEMBL_DOESNOTEXIST")
+
+
+@pytest.mark.asyncio
+async def test_chembl_resolve_by_name_normalizes_and_falls_back():
+    seen_filters: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = request.url.params
+        if "pref_name__iexact" in params:
+            seen_filters.append("pref_name")
+            assert params["pref_name__iexact"] == "VALPROIC ACID"  # hyphen -> space, upper
+            return httpx.Response(200, json={"molecules": []})  # miss -> triggers fallback
+        seen_filters.append("synonym")
+        return httpx.Response(200, json={"molecules": [{"molecule_chembl_id": "CHEMBL109"}]})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http:
+        client = ChEMBLClient(client=http)
+        molecule = await client.resolve_molecule_by_name("valproic-acid")
+    assert molecule is not None
+    assert molecule["molecule_chembl_id"] == "CHEMBL109"
+    assert seen_filters == ["pref_name", "synonym"]
+
+
+@pytest.mark.asyncio
+async def test_chembl_resolve_by_name_returns_none_when_unmatched():
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"molecules": []})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http:
+        client = ChEMBLClient(client=http)
+        assert await client.resolve_molecule_by_name("BRD-K12345678") is None
+
+
+def _lincs_handler():
+    """Route the three SigCom endpoints to their recorded fixtures."""
+    entities = json.loads((FIXTURES / "lincs" / "entities_find.json").read_text())
+    enrich = json.loads((FIXTURES / "lincs" / "enrich.json").read_text())
+    signatures = json.loads((FIXTURES / "lincs" / "signatures_find.json").read_text())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/entities/find"):
+            body = json.loads(request.content)
+            wanted = set(body["filter"]["where"]["meta.symbol"]["inq"])
+            hits = [e for e in entities if e["meta"]["symbol"] in wanted]
+            return httpx.Response(200, json=hits)
+        if path.endswith("/enrich/ranktwosided"):
+            return httpx.Response(200, json=enrich)
+        if path.endswith("/signatures/find"):
+            return httpx.Response(200, json=signatures)
+        return httpx.Response(404, text=f"unexpected path {path}")
+
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_lincs_find_reversers_end_to_end():
+    transport = httpx.MockTransport(_lincs_handler())
+    async with httpx.AsyncClient(transport=transport) as http:
+        client = SigComLincsClient(client=http)
+        result = await client.find_reversers(
+            up_symbols=["IRAK1"], down_symbols=["MECP2", "BDNF"], limit=10
+        )
+
+    # Only the two reversers (negative z) survive; the mimicker is dropped.
+    reversers = result["reversers"]
+    assert {r["pert_name"] for r in reversers} == {"valproic-acid", "raloxifene"}
+    strongest = min(reversers, key=lambda r: r["z_sum"])
+    assert strongest["pert_name"] == "valproic-acid"
+    assert strongest["z_sum"] == pytest.approx(-8.1)
+    assert result["resolved_up"] == {"IRAK1": "uuid-IRAK1"}
+
+
+@pytest.mark.asyncio
+async def test_lincs_raises_when_no_genes_resolve():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/entities/find"):
+            return httpx.Response(200, json=[])  # nothing resolves
+        return httpx.Response(200, json={"results": []})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http:
+        client = SigComLincsClient(client=http)
+        with pytest.raises(LincsError):
+            await client.find_reversers(up_symbols=["NOPE"], down_symbols=["ZILCH"], limit=5)

@@ -36,7 +36,9 @@ export interface EvidenceLink {
 
 export interface Candidate {
   drug: Drug;
-  target: Target;
+  // Optional: target-based candidates pin a target; target-agnostic strategies
+  // (signature reversal) leave it null.
+  target: Target | null;
   score: number;
   score_components: Record<string, number>;
   evidence: EvidenceLink[];

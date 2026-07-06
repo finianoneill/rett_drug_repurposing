@@ -107,7 +107,7 @@ class TargetBasedStrategy(Strategy):
                 "target_based.top",
                 rank=i,
                 drug=candidate.drug.name,
-                target=candidate.target.symbol,
+                target=candidate.target.symbol if candidate.target else None,
                 score=round(candidate.score, 4),
             )
 

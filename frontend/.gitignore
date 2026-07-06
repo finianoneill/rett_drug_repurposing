@@ -1,6 +1,7 @@
 node_modules/
 .next/
 out/
+*.tsbuildinfo
 .vercel/
 .turbo/
 .env.local
