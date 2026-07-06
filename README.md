@@ -14,6 +14,26 @@ Browser ──► frontend (Next.js, :3000) ──► backend (FastAPI, :8000) �
 
 The Next.js Route Handler at `/api/repurpose` proxies SSE from the backend (`http://backend:8000`) to the browser. CORS is a non-issue because the browser only ever talks to the frontend container.
 
+Inside the backend, a LangGraph pipeline dispatches the enabled strategies and streams ranked candidates back over SSE:
+
+```
+                 ┌── target_based ──┐
+supervisor ──────┤                  ├────► synthesizer ──► SSE stream
+                 └─ signature_reversal ─┘   (passthrough; real
+                                             ensemble = Phase 4)
+```
+
+Both strategies read from the same DuckDB store, which is populated **offline** by an idempotent fetch pipeline (`make fetch`) — the backend never fetches at request time:
+
+```
+Open Targets ─┐
+ChEMBL ───────┤► build_local_store.py ─► rett_repurposing.duckdb
+GEO ─► signature ─► SigCom LINCS ─┘
+```
+
+- **target-based** joins approved drugs to Rett-associated targets (Open Targets + ChEMBL).
+- **signature reversal** builds a Mecp2-null-vs-wild-type cortex expression signature from GEO, asks SigCom LINCS which L1000 perturbagens reverse it, and resolves the hits to ChEMBL drugs.
+
 ## Quickstart
 
 Requires Docker Desktop (or any Docker Engine ≥ 24 with Compose v2).
@@ -45,7 +65,7 @@ Two services live in `docker-compose.yml`:
    cp .env.example .env
    # edit .env: ANTHROPIC_API_KEY=sk-ant-...
    ```
-   Phase 1 doesn't yet call the LLM, but `pydantic-settings` reads the file at startup.
+   Phases 1–2 don't yet call the LLM (deterministic supervisor and passthrough synthesizer), but `pydantic-settings` reads the file at startup.
 3. **No host process bound to ports `3000` or `8000`.** Stop any local dev servers first.
 
 ### 1. Build images
@@ -59,7 +79,7 @@ The first build takes ~2–4 min (uv resolves the Python lockfile, pnpm installs
 ### 2. Populate the DuckDB store
 
 ```bash
-make fetch                             # runs the three fetcher scripts inside the backend container
+make fetch                             # runs the fetch + build pipeline inside the backend container
 ```
 
 This runs, in order: `fetch_opentargets.py` → `fetch_chembl.py` (Phase 1) → `fetch_geo.py` → `build_signature.py` → `fetch_lincs.py` (Phase 2) → `build_local_store.py`, leaving `./data/rett_repurposing.duckdb` on disk. The host owns `./data/`; the container mounts it read-write only during the fetch.
@@ -129,7 +149,23 @@ The committed `docker-compose.override.yml` is **dev-mode by design** (hot-reloa
 docker compose -f docker-compose.yml up --build
 ```
 
-Passing `-f docker-compose.yml` explicitly skips the override. The backend then runs the baked-in `CMD` (`uvicorn ... --host 0.0.0.0 --port 8000`, no `--reload`) and the frontend runs the dev `pnpm dev` baked into its Dockerfile. A dedicated `Dockerfile` stage that runs `next build && next start` is a Phase 2 deliverable; for now this is "production-shaped," not "production-ready." Don't expose this to the public internet.
+Passing `-f docker-compose.yml` explicitly skips the override. The backend then runs the baked-in `CMD` (`uvicorn ... --host 0.0.0.0 --port 8000`, no `--reload`) and the frontend runs the dev `pnpm dev` baked into its Dockerfile. A dedicated `Dockerfile` stage that runs `next build && next start` remains a later deliverable; for now this is "production-shaped," not "production-ready." Don't expose this to the public internet.
+
+## Running the strategies
+
+Once the stack is up, open <http://localhost:3000>. Pick one or more **strategies** with the toggle buttons (`Target-based`, `Signature reversal`), then click **Run analysis**. Candidates stream in ranked by score, each with a collapsible evidence trail. Target-based candidates show the hit target; signature-reversal candidates are target-agnostic and show the strategy badge plus the L1000 reversal evidence.
+
+Under the hood the page calls `POST /api/repurpose`, which proxies to the backend. To drive it directly:
+
+```bash
+curl -N http://localhost:8000/repurpose \
+  -H 'Content-Type: application/json' \
+  -d '{"disease": "Rett syndrome", "enabled_strategies": ["signature_reversal"]}'
+```
+
+`enabled_strategies` accepts `["target_based"]`, `["signature_reversal"]`, or both (defaults to `["target_based"]`). The response is an SSE stream: `status` events for pipeline phases, one `candidate` event per ranked drug, then a final `complete` event (or an `error` event).
+
+> **Note:** the synthesizer is still a passthrough (real cross-strategy aggregation is Phase 4). When you enable *both* strategies it surfaces one list deterministically — run them individually to compare candidate sets. Independent methods agreeing is a good signal: e.g. **vorinostat** ranks highly under *both* target-based (HDAC axis) and signature reversal.
 
 ## Host-mode development
 
@@ -143,21 +179,26 @@ make typecheck                         # mypy + tsc
 make fetch-host                        # populate the DuckDB file from the host
 ```
 
-Host-mode tests are network-free (HTTP fetchers use `httpx.MockTransport`, store tests use in-memory DuckDB). The `validation` marker is opt-in and requires a populated `data/rett_repurposing.duckdb`:
+Host-mode tests are network-free (HTTP fetchers use `httpx.MockTransport`, store tests use in-memory DuckDB, the ortholog table and fixtures are committed). The `validation` marker is opt-in and requires a populated `data/rett_repurposing.duckdb`:
 
 ```bash
-uv run pytest -m validation -s         # oracle-coverage check, requires real data
+uv run pytest -m validation -s         # oracle + signature-reversal checks, require real data
 ```
+
+Two validation tests run here: the target-based **oracle** (Trofinetide's IGF-1 axis and other Rett pathway classes surface in the top 20) and the **signature-reversal** check (neuroactive reversers such as valproic acid / vorinostat / topiramate surface, with valid reversal scores).
 
 ## Repository layout
 
 See `docs/IMPLEMENTATION_BRIEF.md` §4 for the full structure. Highlights:
 
 - `src/rett_repurposing/` — Python package (config, models, store, fetchers, strategies, graph, api).
-- `scripts/` — fetchers and the local-store builder.
-- `frontend/` — Next.js 15 App Router app.
+  - `fetchers/` — Open Targets, ChEMBL, GEO, and SigCom LINCS clients.
+  - `signature/` — Phase 2 disease-signature build (differential expression + mouse→human orthology; the committed ortholog table lives in `signature/reference/`).
+  - `strategies/` — `target_based` and `signature_reversal`, both behind the `Strategy` ABC.
+- `scripts/` — fetchers, the signature builder, and the local-store builder.
+- `frontend/` — Next.js 15 App Router app (strategy selector + streaming candidate cards).
 - `docker/` — backend and frontend Dockerfiles.
-- `notebooks/journal/` — learning journal (user-authored).
+- `notebooks/journal/` — learning journal (user-authored; a Phase 2 stub is scaffolded).
 
 ## Data sources
 
